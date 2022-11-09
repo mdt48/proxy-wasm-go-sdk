@@ -54,11 +54,6 @@ type httpHeaders struct {
 
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
-	err := proxywasm.ReplaceHttpRequestHeader("test", "best")
-	if err != nil {
-		proxywasm.LogCritical("failed to set request header: test")
-	}
-
 	hs, err := proxywasm.GetHttpRequestHeaders()
 	if err != nil {
 		proxywasm.LogCriticalf("failed to get request headers: %v", err)
@@ -67,6 +62,18 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 	for _, h := range hs {
 		proxywasm.LogInfof("request header --> %s: %s", h[0], h[1])
 	}
+	
+	path, err := proxywasm.GetHttpRequestHeader("path")
+	if err != nil { // check if path field has been set yet (i.e. are we the first on the path?)
+		err := proxywasm.ReplaceHttpRequestHeader("path", "IP here")
+		if err != nil {
+			proxywasm.LogCritical("failed to set request header: path")
+		}
+		proxywasm.LogInfof("request header --> path: IP here")
+	} else {
+		proxywasm.LogInfof("should not be here: %s", path)
+	}
+
 	return types.ActionContinue
 }
 
