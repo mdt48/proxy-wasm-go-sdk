@@ -15,15 +15,28 @@
 package main
 
 import (
+	"strings"
+	"time"
+
+	"github.com/tidwall/gjson"
+
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
-	"strings"
-	"encoding/base64"
-	// "github.com/golang-jwt/jwt/v4"
 )
-const clusterName = "web_service"
+
+// var dataStore *proxywasm.ThreadLocalStore
+type dataStore struct {
+	requestID   string
+	requestTime int64
+}
+
+var ds = dataStore{
+	requestID:   "",
+	requestTime: 0,
+}
 
 func main() {
+	// proxywasm.SetTickPeriodMilliseconds(1000)
 	proxywasm.SetVMContext(&vmContext{})
 }
 
@@ -42,96 +55,123 @@ type pluginContext struct {
 	// Embed the default plugin context here,
 	// so that we don't need to reimplement all the methods.
 	types.DefaultPluginContext
+
+	// headerName and headerValue are the header to be added to response. They are configured via
+	// plugin configuration during OnPluginStart.
+	headerName  string
+	headerValue string
 }
 
 // Override types.DefaultPluginContext.
-func (*pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
-	return &httpHeaders{contextID: contextID}
+func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
+	return &httpHeaders{
+		contextID:   contextID,
+		headerName:  p.headerName,
+		headerValue: p.headerValue,
+	}
+}
+
+func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPluginStartStatus {
+	// proxywasm.LogDebug("loading plugin config")
+	data, err := proxywasm.GetPluginConfiguration()
+	if data == nil {
+		return types.OnPluginStartStatusOK
+	}
+
+	if err != nil {
+		// proxywasm.LogCriticalf("error reading plugin configuration: %v", err)
+		return types.OnPluginStartStatusFailed
+	}
+
+	if !gjson.Valid(string(data)) {
+		// proxywasm.LogCritical(`invalid configuration format; expected {"header": "<header name>", "value": "<header value>"}`)
+		return types.OnPluginStartStatusFailed
+	}
+
+	p.headerName = strings.TrimSpace(gjson.Get(string(data), "header").Str)
+	p.headerValue = strings.TrimSpace(gjson.Get(string(data), "value").Str)
+
+	if p.headerName == "" || p.headerValue == "" {
+		proxywasm.LogCritical(`invalid configuration format; expected {"header": "<header name>", "value": "<header value>"}`)
+		return types.OnPluginStartStatusFailed
+	}
+
+	// proxywasm.LogInfof("header from config: %s = %s", p.headerName, p.headerValue)
+
+	return types.OnPluginStartStatusOK
 }
 
 type httpHeaders struct {
 	// Embed the default http context here,
 	// so that we don't need to reimplement all the methods.
 	types.DefaultHttpContext
-	contextID uint32
+	contextID   uint32
+	headerName  string
+	headerValue string
 }
 
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
-	hs, err := proxywasm.GetHttpRequestHeaders()
+	requestID, err := proxywasm.GetHttpRequestHeader("x-request-id")
 	if err != nil {
-		proxywasm.LogCriticalf("failed to get request headers: %v", err)
+		proxywasm.LogCriticalf("failed to get request header: %v", err)
 	}
+	proxywasm.LogInfof("\n\nrequest id: %d\n\n", requestID)
 
-	for _, h := range hs {
-		proxywasm.LogInfof("request header --> %s: %s", h[0], h[1])
-		if h[0] == "cookie" {
-			// cookie was set with JWT 
-			if h[1] != "" {
-				proxywasm.LogInfof("going to authenticate this request")
-				token := strings.SplitAfterN(h[1], "token=", 2)
-				proxywasm.LogInfof("this is our extracted token: %s", token[1])
+	//requestID to string
+	// strUUID := string(requestID[:])
+	// b := []byte(requestID)
+	// err = proxywasm.SetSharedData("requestID", b, 0)
+	// if err != nil {
+	// 	proxywasm.LogCriticalf("failed to set shared data: %v", err)
+	// }
+	ds.requestID = requestID
 
-				// decode token header to extract alg
-				header_payload := strings.Split(token[1], ".")
-				header, err := base64.StdEncoding.DecodeString(header_payload[0])
-				if err != nil {
-					proxywasm.LogInfof("some err thrown when decoding header")
-				}
-				alg := strings.Split(string(header), "{\"typ\":\"JWT\",\"alg\":\"")
-				
-				if alg[1] == "none" {
-					if _, err := proxywasm.DispatchHttpCall(clusterName, hs, nil, nil,
-						50000, httpCallResponseCallback); err != nil {
-						proxywasm.LogCriticalf("dipatch httpcall failed: %v", err)
-						return types.ActionContinue
-					}
-				}
-			}
-		}
-	}
-	
-	path, err := proxywasm.GetHttpRequestHeader("path")
-	if err != nil { // check if path field has been set yet (i.e. are we the first on the path?)
-		err := proxywasm.ReplaceHttpRequestHeader("path", "IP here") // TODO: extract IP to set
-		if err != nil {
-			proxywasm.LogCritical("failed to set request header: path")
-		}
-		proxywasm.LogInfof("request header --> path: IP here")
-	} else { // TODO: extract path and append new IP to it
-		proxywasm.LogInfof("should not be here for now: %s", path)
-	}
+	// t := proxywasm.GetCurrentTimeNanoseconds()
+	t := time.Now().UnixNano() / 1000000000
+
+	ds.requestTime = t
+	// err = proxywasm.SetSharedData("requestTime", []byte(strconv.FormatInt(t, 10)), 0)
+	// if err != nil {
+	// 	proxywasm.LogCriticalf("failed to set shared data: %v", err)
+	// }
+	proxywasm.LogInfof("\n\nrequest ID: %s\n\n", ds.requestID)
+	proxywasm.LogInfof("\n\nrequest time: %d\n\n", ds.requestTime)
 
 	return types.ActionContinue
 }
 
 // Override types.DefaultHttpContext.
-func (ctx *httpHeaders) OnHttpResponseHeaders(numHeaders int, endOfStream bool) types.Action {
-	hs, err := proxywasm.GetHttpResponseHeaders()
-	if err != nil {
-		proxywasm.LogCriticalf("failed to get response headers: %v", err)
+func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
+	proxywasm.LogInfof("adding header: %s=%s", ctx.headerName, ctx.headerValue)
+
+	// Add a hardcoded header
+	if err := proxywasm.AddHttpResponseHeader("x-another-test", "TESTHAHAHA"); err != nil {
+		proxywasm.LogCriticalf("failed to set response constant header: %v", err)
 	}
 
-	for _, h := range hs {
-		proxywasm.LogInfof("response header <-- %s: %s", h[0], h[1])
+	// Add the header passed by arguments
+	if ctx.headerName != "" {
+		if err := proxywasm.AddHttpResponseHeader(ctx.headerName, ctx.headerValue); err != nil {
+			proxywasm.LogCriticalf("failed to set response headers: %v", err)
+		}
 	}
+
+	responseTime := time.Now().UnixNano() / 1000000000
+
+	reqTime := ds.requestTime
+	reqID := ds.requestID
+
+	// log requestID, requestTime, responseTime and responseTime - requestTime
+	proxywasm.LogInfof("\n\nrequest ID: %s\n\n", reqID)
+	proxywasm.LogInfof("\n\nrequest time: %d\n\n", reqTime)
+	proxywasm.LogInfof("\n\nresponse time: %d\n\n", responseTime)
+	proxywasm.LogInfof("\n\ndiff: %d\n\n", responseTime-reqTime)
+
 	return types.ActionContinue
 }
 
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpStreamDone() {
 	proxywasm.LogInfof("%d finished", ctx.contextID)
-}
-
-func httpCallResponseCallback(numHeaders, bodySize, numTrailers int) {
-	
-	body := "access forbidden: JWT has alg none!!"
-	proxywasm.LogInfo(body)
-	if err := proxywasm.SendHttpResponse(403, [][2]string{
-		{"powered-by", "proxy-wasm-go-sdk!!"},
-	}, []byte(body), -1); err != nil {
-		proxywasm.LogErrorf("failed to send local response: %v", err)
-		proxywasm.ResumeHttpRequest()
-	}
-		
 }

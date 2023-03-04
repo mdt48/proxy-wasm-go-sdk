@@ -3,8 +3,8 @@ static_resources:
     - name: main
       address:
         socket_address:
-          address: 0.0.0.0
-          port_value: 18000
+          address: 127.0.0.1
+          port_value: 8000
       filter_chains:
         - filters:
             - name: envoy.http_connection_manager
@@ -20,7 +20,7 @@ static_resources:
                         - "*"
                       routes:
                         - match:
-                            prefix: "/"
+                            prefix: "/matrix_ops"
                           route:
                             cluster: web_service
                 http_filters:
@@ -30,11 +30,18 @@ static_resources:
                       type_url: type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
                       value:
                         config:
+                          configuration:
+                            "@type": type.googleapis.com/google.protobuf.StringValue
+                            value: |
+                              {
+                                "header": "x-wasm-header",
+                                "value": "demo-wasm"
+                              }
                           vm_config:
                             runtime: "envoy.wasm.runtime.v8"
                             code:
                               local:
-                                filename: "./examples/http_headers/main.wasm"
+                                filename: "./httpheader.wasm"
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -45,14 +52,14 @@ static_resources:
       type: STATIC
       lb_policy: ROUND_ROBIN
       load_assignment:
-        cluster_name: web_service
+        cluster_name: mock_service
         endpoints:
           - lb_endpoints:
               - endpoint:
                   address:
                     socket_address:
-                      address: 127.0.0.1
-                      port_value: 8080
+                      address: 172.17.0.2
+                      port_value: 5005
 
 admin:
   access_log_path: "/dev/null"
