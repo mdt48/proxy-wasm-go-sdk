@@ -34,7 +34,14 @@ static_resources:
                             runtime: "envoy.wasm.runtime.v8"
                             code:
                               local:
-                                filename: "./httpheader.wasm"
+                                filename: "./httpheader.wasm" 
+                  # - name: envoy.lua
+                  #   typed_config:
+                  #     "@type": "type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua"
+                  #     inlineCode: |
+                  #       function envoy_on_response(response_handle)
+                  #         response_handle:headers():add("test-from-c1", "test")
+                  #       end
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -73,6 +80,13 @@ static_resources:
                             code:
                               local:
                                 filename: "./httpheader.wasm"
+                  # - name: envoy.lua
+                  #   typed_config:
+                  #     "@type": "type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua"
+                  #     inlineCode: |
+                  #       function envoy_on_response(response_handle)
+                  #         response_handle:headers():add("test-from-c2", "test")
+                  #       end
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -102,7 +116,7 @@ static_resources:
                   address:
                     socket_address:
                       address: 128.105.144.71
-                      port_value: 5010 
+                      port_value: 5020
     # - name: egress_http
     #   connect_timeout: 0.25s
     #   type: STATIC

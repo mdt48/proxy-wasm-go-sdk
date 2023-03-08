@@ -15,20 +15,13 @@
 package main
 
 import (
-	// "net/http"
-
-	"math/rand"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/tidwall/gjson"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
 )
-
-var authHeader string
 
 func main() {
 	// proxywasm.SetTickPeriodMilliseconds(1000)
@@ -55,8 +48,6 @@ type pluginContext struct {
 	// plugin configuration during OnPluginStart.
 	headerName  string
 	headerValue string
-
-	callBack func(numHeaders, bodySize, numTrailers int)
 }
 
 // Override types.DefaultPluginContext.
@@ -65,7 +56,6 @@ func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 		contextID:   contextID,
 		headerName:  p.headerName,
 		headerValue: p.headerValue,
-		callBack:    p.callBack,
 	}
 }
 
@@ -93,16 +83,7 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		proxywasm.LogCritical(`invalid configuration format; expected {"header": "<header name>", "value": "<header value>"}`)
 		return types.OnPluginStartStatusFailed
 	}
-	p.callBack = func(numHeaders, bodySize, numTrailers int) {
-		respHeaders, _ := proxywasm.GetHttpCallResponseHeaders()
-		proxywasm.LogInfof("respHeaders: %v", respHeaders)
 
-		for _, headerPairs := range respHeaders {
-			if headerPairs[0] == "authorization" {
-				authHeader = headerPairs[1]
-			}
-		}
-	}
 	// proxywasm.LogInfof("header from config: %s = %s", p.headerName, p.headerValue)
 
 	return types.OnPluginStartStatusOK
@@ -115,7 +96,6 @@ type httpHeaders struct {
 	contextID   uint32
 	headerName  string
 	headerValue string
-	callBack    func(numHeaders, bodySize, numTrailers int)
 }
 
 type node struct {
@@ -126,71 +106,58 @@ type node struct {
 type dataStore struct {
 	reqID2Info map[string]node
 	currID     string
-	counter    int
 }
 
 var ds = dataStore{
 	currID:     "",
 	reqID2Info: make(map[string]node),
-	counter:    0,
 }
 
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
 	// get request id from http request header
-	reqID, err := proxywasm.GetHttpRequestHeader("x-request-id")
-	if err != nil {
-		proxywasm.LogCriticalf("failed to get request id: %v", err)
-	}
-
-	currTime := time.Now().UnixNano() / 1000000000
-
-	ds.currID = reqID
-	ds.reqID2Info[reqID] = node{
-		timeStamp: currTime,
-		power:     0,
-	}
-
-	// proxywasm.LogInfof("IN THE REQUEST FOR OUTGOING")
-
-	// direction, err := proxywasm.GetHttpRequestHeader(":method")
-
+	// reqID, err := proxywasm.GetHttpRequestHeader("x-request-id")
 	// if err != nil {
-	// 	proxywasm.LogCriticalf("\n\nfailed to get request Method so it is outgoing: %v", err)
-	// } else {
-	// 	// log direction
-	// 	proxywasm.LogInfof("\n\ndirection: %s", direction)
+	// 	proxywasm.LogCriticalf("failed to get request id: %v", err)
 	// }
+
+	// currTime := time.Now().UnixNano() / 1000000000
+
+	// ds.currID = reqID
+	// ds.reqID2Info[reqID] = node{
+	// 	timeStamp: currTime,
+	// 	power:     0,
+	// }
+
+	proxywasm.LogInfof("IN THE REQUEST")
+
 	return types.ActionContinue
 }
 
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
-	currID := ds.currID
-	currNode := ds.reqID2Info[currID]
-	timeDelta := time.Now().UnixNano()/1000000000 - currNode.timeStamp
-	rand.Seed(time.Now().UnixNano())
+	// currID := ds.currID
+	// currNode := ds.reqID2Info[currID]
+	// timeDelta := time.Now().UnixNano()/1000000000 - currNode.timeStamp
+
 	// concatenate the string "x-power" with curID
 	// powerKey := "x-power-" + currID[:5]
-	powerKey := ds.counter
-	power := rand.Intn(100)
-	powerKey = power + powerKey
-	ds.counter++
 
-	powerKeyString := strconv.Itoa(powerKey)
+	// // create a random variable between 0 and 100
+	// power := rand.Intn(100)
 
 	// // convert the integer power to a string
-	powerString := strconv.Itoa(power)
+	// powerString := strconv.Itoa(power)
 
-	// init_reqid, err := proxywasm.GetHttpRequestHeader("x-request-id")
-
-	// log powerkey and powerkeystring
-	proxywasm.LogInfof("\n\n\tpower: %d\n\tpowerKeyString: %s", power, powerKeyString)
-
-	// power, err = proxGetHttpResponseHeader(powerKey)
+	// add random power value to response header with key "x-power"
+	// err := proxywasm.AddHttpResponseHeader(powerKey, powerString)
+	// if err != nil {
+	// 	proxywasm.LogCriticalf("failed to add response header: %v", err)
+	// }
+	// power, err = GetHttpResponseHeader(powerKey)
 
 	// log the powerKey response header
-	proxywasm.LogInfof("\n\n\tcurrent id: %s\n\tcurrent node: %v\n\ttime delta: %d", currID, currNode, timeDelta)
+	// proxywasm.LogInfof("\n\n\tcurrent id: %s\n\tcurrent node: %v\n\ttime delta: %d", currID, currNode, timeDelta)
 
 	// for k, v := range ds.reqID2Info {
 	// 	// fmt.Printf("key[%s] value[%s]\n", k, v)
@@ -208,63 +175,13 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 	// 	proxywasm.LogInfof("Response header: %s: %s", header[0], header[1])
 	// }
 
-	// resp, err := http.Get("127.0.0.1:8020/fib")
-	// if err != nil {
-	// 	proxywasm.LogCriticalf("error %s", err)
-	// }
-	// hs := [][2]string{
-	// 	{":method", "GET"}, {":authority", "127.0.0.1:8000"}, {":path", "/fib"}, {"accept", "*/*"},
-	// }
-
-	// _, err := proxywasm.DispatchHttpCall("fib_ingress", hs, nil, nil, 5000, ctx.callBack)
-
-	// if err != nil {
-	// 	proxywasm.LogCriticalf("error %s", err)
-	// }
-
-	// // proxywasm.LogInfof("\n\nresponse: %s", resp.body)
-
-	// // proxywasm.LogInfof("response: %s", resp)
-
-	// // proxywasm.LogInfof("headerName = %s, header	Value = %s", ctx.headerName, ctx.headerValue)
-	// proxywasm.LogInfof("IN THE RESPONSE FOR OUTGOING")
-	// proxywasm.AddHttpResponseHeader("x-TEST", authHeader)
-	// proxywasm.LogInfof("\n\n%s", authHeader)
-
-	// proxywasm.
-	// Get and log the headers
-	hs, err := proxywasm.GetHttpResponseHeaders()
-	if err != nil {
-		proxywasm.LogCriticalf("failed to get response headers: %v", err)
-	}
-
-	for _, h := range hs {
-		// if strings.Contains(h[0], "x-power") {
-		proxywasm.LogInfof("response header <-- %s: %s\n\n", h[0], h[1])
-		// proxywasm.AddHttpResponseHeader(h[0], h[1])
-		// }
-
-	}
-
-	proxywasm.AddHttpResponseHeader("x-power-"+""+powerKeyString, powerString)
-
-	hs, err = proxywasm.GetHttpResponseHeaders()
-	if err != nil {
-		proxywasm.LogCriticalf("failed to get response headers: %v", err)
-	}
-
-	for _, h := range hs {
-		if strings.Contains(h[0], "x-power") {
-			proxywasm.LogInfof("response header <-- %s: %s", h[0], h[1])
-			// proxywasm.AddHttpResponseHeader(h[0], h[1])
-		}
-
-	}
+	// proxywasm.LogInfof("headerName = %s, header	Value = %s", ctx.headerName, ctx.headerValue)
+	proxywasm.LogInfof("IN THE RESPONSE")
 
 	return types.ActionContinue
 }
 
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpStreamDone() {
-	proxywasm.LogInfof("%d finished", ctx.headerName)
+	proxywasm.LogInfof("%d finished", ctx.contextID)
 }
