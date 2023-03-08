@@ -15,6 +15,8 @@
 package main
 
 import (
+	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,17 +25,6 @@ import (
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
 )
-
-// var dataStore *proxywasm.ThreadLocalStore
-type dataStore struct {
-	requestID   string
-	requestTime int64
-}
-
-var ds = dataStore{
-	requestID:   "",
-	requestTime: 0,
-}
 
 func main() {
 	// proxywasm.SetTickPeriodMilliseconds(1000)
@@ -110,63 +101,80 @@ type httpHeaders struct {
 	headerValue string
 }
 
+type node struct {
+	timeStamp int64
+	power     float64
+}
+
+type dataStore struct {
+	reqID2Info map[string]node
+	currID     string
+}
+
+var ds = dataStore{
+	currID:     "",
+	reqID2Info: make(map[string]node),
+}
+
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
-	requestID, err := proxywasm.GetHttpRequestHeader("x-request-id")
+	// get request id from http request header
+	reqID, err := proxywasm.GetHttpRequestHeader("x-request-id")
 	if err != nil {
-		proxywasm.LogCriticalf("failed to get request header: %v", err)
+		proxywasm.LogCriticalf("failed to get request id: %v", err)
 	}
-	proxywasm.LogInfof("\n\nrequest id: %d\n\n", requestID)
 
-	//requestID to string
-	// strUUID := string(requestID[:])
-	// b := []byte(requestID)
-	// err = proxywasm.SetSharedData("requestID", b, 0)
-	// if err != nil {
-	// 	proxywasm.LogCriticalf("failed to set shared data: %v", err)
-	// }
-	ds.requestID = requestID
+	currTime := time.Now().UnixNano() / 1000000000
 
-	// t := proxywasm.GetCurrentTimeNanoseconds()
-	t := time.Now().UnixNano() / 1000000000
-
-	ds.requestTime = t
-	// err = proxywasm.SetSharedData("requestTime", []byte(strconv.FormatInt(t, 10)), 0)
-	// if err != nil {
-	// 	proxywasm.LogCriticalf("failed to set shared data: %v", err)
-	// }
-	proxywasm.LogInfof("\n\nrequest ID: %s\n\n", ds.requestID)
-	proxywasm.LogInfof("\n\nrequest time: %d\n\n", ds.requestTime)
+	ds.currID = reqID
+	ds.reqID2Info[reqID] = node{
+		timeStamp: currTime,
+		power:     0,
+	}
 
 	return types.ActionContinue
 }
 
 // Override types.DefaultHttpContext.
 func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
-	proxywasm.LogInfof("adding header: %s=%s", ctx.headerName, ctx.headerValue)
+	currID := ds.currID
+	currNode := ds.reqID2Info[currID]
+	timeDelta := time.Now().UnixNano()/1000000000 - currNode.timeStamp
 
-	// Add a hardcoded header
-	if err := proxywasm.AddHttpResponseHeader("x-another-test", "TESTHAHAHA"); err != nil {
-		proxywasm.LogCriticalf("failed to set response constant header: %v", err)
+	// concatenate the string "x-power" with curID
+	powerKey := "x-power-" + currID[:5]
+
+	// create a random variable between 0 and 100
+	power := rand.Intn(100)
+
+	// convert the integer power to a string
+	powerString := strconv.Itoa(power)
+
+	// add random power value to response header with key "x-power"
+	err := proxywasm.AddHttpResponseHeader(powerKey, powerString)
+	if err != nil {
+		proxywasm.LogCriticalf("failed to add response header: %v", err)
+	}
+	// power, err = GetHttpResponseHeader(powerKey)
+
+	// log the powerKey response header
+	proxywasm.LogInfof("\n\n\tcurrent id: %s\n\tcurrent node: %v\n\ttime delta: %d", currID, currNode, timeDelta)
+
+	for k, v := range ds.reqID2Info {
+		// fmt.Printf("key[%s] value[%s]\n", k, v)
+		proxywasm.LogInfof("\nkey[%s] value[%s]\n", k, v.power)
 	}
 
-	// Add the header passed by arguments
-	if ctx.headerName != "" {
-		if err := proxywasm.AddHttpResponseHeader(ctx.headerName, ctx.headerValue); err != nil {
-			proxywasm.LogCriticalf("failed to set response headers: %v", err)
-		}
-	}
+	// headers, err := ctx.GetHttpResponseHeaders()
+	// if err != nil {
+	// 	proxywasm.LogWarnf("Failed to get response headers: %v", err)
+	// 	return types.ActionContinue
+	// }
 
-	responseTime := time.Now().UnixNano() / 1000000000
-
-	reqTime := ds.requestTime
-	reqID := ds.requestID
-
-	// log requestID, requestTime, responseTime and responseTime - requestTime
-	proxywasm.LogInfof("\n\nrequest ID: %s\n\n", reqID)
-	proxywasm.LogInfof("\n\nrequest time: %d\n\n", reqTime)
-	proxywasm.LogInfof("\n\nresponse time: %d\n\n", responseTime)
-	proxywasm.LogInfof("\n\ndiff: %d\n\n", responseTime-reqTime)
+	// // Print all of the response headers.
+	// for _, header := range headers {
+	// 	proxywasm.LogInfof("Response header: %s: %s", header[0], header[1])
+	// }
 
 	return types.ActionContinue
 }
