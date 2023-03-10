@@ -16,6 +16,7 @@ package main
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
@@ -98,6 +99,23 @@ func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 	}
 }
 
+type node struct {
+	timeStamp int64
+	power     float64
+}
+
+type dataStore struct {
+	reqID2Info map[string]node
+	currID     string
+	counter    int
+}
+
+var ds = dataStore{
+	currID:     "",
+	reqID2Info: make(map[string]node),
+	counter:    0,
+}
+
 type rps_struct struct {
 	requests int
 	rps      int
@@ -106,11 +124,34 @@ type rps_struct struct {
 var RPS = rps_struct{requests: 0, rps: 100}
 
 func (ctx *httpHeaders) OnHttpRequestHeaders(_ int, _ bool) types.Action {
+	reqID, err := proxywasm.GetHttpRequestHeader("x-request-id")
+	if err != nil {
+		proxywasm.LogCriticalf("failed to get request id: %v", err)
+	}
+
+	currTime := time.Now().UnixNano() / 1000000000
+
+	ds.currID = reqID
+	ds.reqID2Info[reqID] = node{
+		timeStamp: currTime,
+		power:     0,
+	}
+
 	RPS.requests++
 	return types.ActionContinue
 }
 
 func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
+
+	currID := ds.currID
+	currNode := ds.reqID2Info[currID]
+	now := time.Now().UnixNano() / 1000000000
+	timeDelta := now - currNode.timeStamp
+
+	// ds.counter++
+
+	// log the powerKey response header
+	proxywasm.LogInfof("\n\n\t time: %d\n\ttcurrent id: %s\n\tcurrent node ts: %d\n\ttime delta: %d", now, currID, currNode.timeStamp, timeDelta)
 
 	proxywasm.LogInfof("\nrps %d\n", RPS.rps)
 
