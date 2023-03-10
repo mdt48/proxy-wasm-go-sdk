@@ -154,11 +154,12 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 	currNode := ds.reqID2Info[currID]
 	now := time.Now().UnixNano() / 1000000000
 	timeDelta := now - currNode.timeStamp
+	path := currNode.path
 
 	// ds.counter++
 
 	// log the powerKey response header
-	proxywasm.LogInfof("\n\n\t time: %d\n\ttcurrent id: %s\n\tcurrent node ts: %d\n\ttime delta: %d", now, currID, currNode.timeStamp, timeDelta)
+	proxywasm.LogInfof("\n\n\tpath: %s\n\ttime: %d\n\ttcurrent id: %s\n\tcurrent node ts: %d\n\ttime delta: %d", path, now, currID, currNode.timeStamp, timeDelta)
 
 	proxywasm.LogInfof("\nrps %d\n", RPS.rps)
 
