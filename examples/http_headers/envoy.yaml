@@ -45,7 +45,7 @@ static_resources:
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
-    - name: fib_listener
+    - name: model_listener
       address:
         socket_address:
           address: 127.0.0.1
@@ -65,9 +65,9 @@ static_resources:
                         - "*"
                       routes:
                         - match:
-                            prefix: "/fib"
+                            prefix: "/model"
                           route:
-                            cluster: fib_ingress
+                            cluster: model_ingress
                 http_filters:
                   - name: envoy.filters.http.wasm
                     typed_config:
@@ -104,7 +104,7 @@ static_resources:
                     socket_address:
                       address: 128.105.144.71
                       port_value: 5005
-    - name: fib_ingress
+    - name: model_ingress
       connect_timeout: 0.25s
       type: STATIC
       lb_policy: ROUND_ROBIN
@@ -116,7 +116,7 @@ static_resources:
                   address:
                     socket_address:
                       address: 128.105.144.71
-                      port_value: 5020
+                      port_value: 5010
     # - name: egress_http
     #   connect_timeout: 0.25s
     #   type: STATIC
