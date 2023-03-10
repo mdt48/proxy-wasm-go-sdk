@@ -102,6 +102,7 @@ func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 type node struct {
 	timeStamp int64
 	power     float64
+	path      string
 }
 
 type dataStore struct {
@@ -129,12 +130,18 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(_ int, _ bool) types.Action {
 		proxywasm.LogCriticalf("failed to get request id: %v", err)
 	}
 
+	path, err := proxywasm.GetHttpRequestHeader(":path")
+	if err != nil {
+		proxywasm.LogCriticalf("failed to get path: %v", err)
+	}
+
 	currTime := time.Now().UnixNano() / 1000000000
 
 	ds.currID = reqID
 	ds.reqID2Info[reqID] = node{
 		timeStamp: currTime,
 		power:     0,
+		path:      path,
 	}
 
 	RPS.requests++
@@ -156,7 +163,12 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 	proxywasm.LogInfof("\nrps %d\n", RPS.rps)
 
 	headers := [][2]string{
-		{":method", "GET"}, {":authority", "some_authority"}, {"accept", "*/*"}, {":path", "/model"}, {"rps", strconv.Itoa(RPS.rps)},
+		{":method", "GET"},
+		{":authority", "some_authority"},
+		{"accept", "*/*"}, {":path", "/model"},
+		{"rps", strconv.Itoa(RPS.rps)},
+		{"original_path", currNode.path},
+		{"time_delta", strconv.Itoa(int(timeDelta))},
 	}
 	// Pick random value to select the request path.
 
