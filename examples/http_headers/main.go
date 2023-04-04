@@ -15,6 +15,7 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -190,18 +191,32 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(_ int, _ bool) types.Action {
 			proxywasm.LogCritical("failed to set request header: test")
 			return types.ActionPause
 		}
+
+		currTime := time.Now().UnixNano() / 1000000000
+
+		ds.currID = reqID
+		ds.reqID2Info[reqID] = node{
+			timeStamp: currTime,
+			power:     0,
+			path:      replaced_path,
+		}
+
+		RPS.requests++
+	} else {
+
+		currTime := time.Now().UnixNano() / 1000000000
+
+		ds.currID = reqID
+		ds.reqID2Info[reqID] = node{
+			timeStamp: currTime,
+			power:     0,
+			path:      path,
+		}
+
+		RPS.requests++
+
 	}
 
-	currTime := time.Now().UnixNano() / 1000000000
-
-	ds.currID = reqID
-	ds.reqID2Info[reqID] = node{
-		timeStamp: currTime,
-		power:     0,
-		path:      path,
-	}
-
-	RPS.requests++
 	return types.ActionContinue
 }
 
@@ -213,6 +228,11 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 	timeDelta := now - currNode.timeStamp
 	path := currNode.path
 
+	split_path := strings.Split(path, "/")
+	proxywasm.LogCriticalf("\n\n\tsplit path: %s\n\n", split_path)
+	img_size := split_path[2]
+	rps := split_path[3]
+
 	// ds.counter++
 
 	// log the powerKey response header
@@ -220,11 +240,17 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 
 	proxywasm.LogInfof("\nrps %d\n", RPS.rps)
 
+	// concatentate the path with the time delta
+	new_path := fmt.Sprintf("/model/%s/%d/%s/%s", rps, timeDelta, img_size, img_size)
+	// new_path = fmt.
+
 	headers := [][2]string{
 		{":method", "GET"},
 		{":authority", "some_authority"},
-		{"accept", "*/*"}, {":path", "/model"},
-		{"rps", strconv.Itoa(RPS.rps)},
+		{"accept", "*/*"}, {":path", new_path},
+		{"rps", rps},
+		{"img_size", img_size},
+		{"execution_time", strconv.Itoa(int(timeDelta))},
 		{"original_path", currNode.path},
 		{"time_delta", strconv.Itoa(int(timeDelta))},
 	}
