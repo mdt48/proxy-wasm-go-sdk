@@ -122,6 +122,8 @@ type rps_struct struct {
 	rps      int
 }
 
+const quota = 100
+
 var RPS = rps_struct{requests: 0, rps: 100}
 
 func (ctx *httpHeaders) OnHttpRequestHeaders(_ int, _ bool) types.Action {
@@ -133,6 +135,39 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(_ int, _ bool) types.Action {
 	path, err := proxywasm.GetHttpRequestHeader(":path")
 	if err != nil {
 		proxywasm.LogCriticalf("failed to get path: %v", err)
+	}
+
+	total_energy, err := proxywasm.GetHttpRequestHeader("total_energy")
+	if err != nil {
+		proxywasm.LogCriticalf("failed to get path: %v", err)
+	}
+
+	total_energy_float, err := strconv.ParseFloat(total_energy, 64)
+	proxywasm.LogCriticalf("\n\ntotal energy: %f\n\n", total_energy_float)
+	proxywasm.LogCriticalf("\n\nratio: %f\n\n", total_energy_float/quota)
+
+	// log boolean value
+	proxywasm.LogCriticalf("\n\nboolean: %t\n\n", total_energy_float/quota > 0.7)
+	if total_energy_float/quota > 0.7 {
+		proxywasm.LogCriticalf("Routing to lower energy server")
+
+		const authorityKey = ":authority"
+		value, err := proxywasm.GetHttpRequestHeader(authorityKey)
+		if err != nil {
+			proxywasm.LogCritical("failed to get request header: ':authority'")
+			return types.ActionPause
+		}
+
+		value += "-save-energy"
+		if err := proxywasm.ReplaceHttpRequestHeader(":authority", value); err != nil {
+			proxywasm.LogCritical("failed to set request header: test")
+			return types.ActionPause
+		}
+
+		if err := proxywasm.ReplaceHttpRequestHeader(":path", "/efficientnetb0"); err != nil {
+			proxywasm.LogCritical("failed to set request header: test")
+			return types.ActionPause
+		}
 	}
 
 	currTime := time.Now().UnixNano() / 1000000000

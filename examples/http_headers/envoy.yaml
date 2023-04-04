@@ -1,6 +1,6 @@
 static_resources:
   listeners:
-    - name: matrix_ops_listener
+    - name: image_class
       address:
         socket_address:
           address: 127.0.0.1
@@ -15,14 +15,22 @@ static_resources:
                 route_config:
                   name: local_route
                   virtual_hosts:
-                    - name: local_service
+                    - name: low_energy_service
+                      domains:
+                        - "*-save-energy"
+                      routes:
+                        - match:
+                            prefix: "/efficientnetb0"
+                          route:
+                            cluster: image_class_service
+                    - name: normal_energy_service
                       domains:
                         - "*"
                       routes:
                         - match:
-                            prefix: "/matrix_ops"
+                            prefix: "/resnet152"
                           route:
-                            cluster: matrix_ops_service
+                            cluster: image_class_service
                 http_filters:
                   - name: envoy.filters.http.wasm
                     typed_config:
@@ -45,6 +53,7 @@ static_resources:
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+    
     - name: model_listener
       address:
         socket_address:
@@ -91,7 +100,7 @@ static_resources:
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
   clusters:
-    - name: matrix_ops_service
+    - name: image_class_service
       connect_timeout: 0.25s
       type: STATIC
       lb_policy: ROUND_ROBIN
@@ -102,7 +111,7 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: 128.105.144.71
+                      address: 128.105.145.38
                       port_value: 5005
     - name: model_ingress
       connect_timeout: 0.25s
@@ -115,7 +124,7 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: 128.105.144.71
+                      address: 128.105.145.38
                       port_value: 5010
     # - name: egress_http
     #   connect_timeout: 0.25s
