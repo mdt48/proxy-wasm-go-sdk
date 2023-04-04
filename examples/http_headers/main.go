@@ -16,6 +16,7 @@ package main
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
@@ -122,7 +123,7 @@ type rps_struct struct {
 	rps      int
 }
 
-const quota = 100
+// const quota = 100
 
 var RPS = rps_struct{requests: 0, rps: 100}
 
@@ -142,13 +143,27 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(_ int, _ bool) types.Action {
 		proxywasm.LogCriticalf("failed to get path: %v", err)
 	}
 
+	quota, err := proxywasm.GetHttpRequestHeader("quota")
+	if err != nil {
+		proxywasm.LogCriticalf("failed to get path: %v", err)
+	}
+
 	total_energy_float, err := strconv.ParseFloat(total_energy, 64)
+	if err != nil {
+		proxywasm.LogCriticalf("failed to convert total energy to float: %v", err)
+	}
+	quota_float, err := strconv.ParseFloat(quota, 64)
+	if err != nil {
+		proxywasm.LogCriticalf("failed to convert quota to float: %v", err)
+	}
+
+	proxywasm.LogCriticalf("\n\nquota=%f\n\n", quota_float)
 	proxywasm.LogCriticalf("\n\ntotal energy: %f\n\n", total_energy_float)
-	proxywasm.LogCriticalf("\n\nratio: %f\n\n", total_energy_float/quota)
+	proxywasm.LogCriticalf("\n\nratio: %f\n\n", total_energy_float/quota_float)
 
 	// log boolean value
-	proxywasm.LogCriticalf("\n\nboolean: %t\n\n", total_energy_float/quota > 0.7)
-	if total_energy_float/quota > 0.7 {
+	proxywasm.LogCriticalf("\n\nboolean: %t\n\n", total_energy_float/quota_float > 0.7)
+	if total_energy_float/quota_float > 0.7 {
 		proxywasm.LogCriticalf("Routing to lower energy server")
 
 		const authorityKey = ":authority"
@@ -158,13 +173,20 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(_ int, _ bool) types.Action {
 			return types.ActionPause
 		}
 
+		path, err = proxywasm.GetHttpRequestHeader(":path")
+		if err != nil {
+			proxywasm.LogCriticalf("failed to get path: %v", err)
+		}
+
+		replaced_path := strings.Replace(path, "resnet152", "efficientnetb0", 1)
+
 		value += "-save-energy"
 		if err := proxywasm.ReplaceHttpRequestHeader(":authority", value); err != nil {
 			proxywasm.LogCritical("failed to set request header: test")
 			return types.ActionPause
 		}
 
-		if err := proxywasm.ReplaceHttpRequestHeader(":path", "/efficientnetb0"); err != nil {
+		if err := proxywasm.ReplaceHttpRequestHeader(":path", replaced_path); err != nil {
 			proxywasm.LogCritical("failed to set request header: test")
 			return types.ActionPause
 		}
