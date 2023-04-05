@@ -38,16 +38,13 @@ type vmContext struct {
 
 // Override types.DefaultVMContext.
 func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
-	return &pluginContext{contextID: contextID}
+	return &pluginContext{}
 }
 
 type pluginContext struct {
 	// Embed the default plugin context here,
 	// so that we don't need to reimplement all the methods.
 	types.DefaultPluginContext
-	contextID uint32
-	callBack  func(numHeaders, bodySize, numTrailers int)
-	cnt       int
 }
 
 // Override types.DefaultPluginContext.
@@ -57,48 +54,36 @@ func (ctx *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlu
 		return types.OnPluginStartStatusFailed
 	}
 	proxywasm.LogInfof("set tick period milliseconds: %d", tickMilliseconds)
-	ctx.callBack = func(numHeaders, bodySize, numTrailers int) {
-		ctx.cnt++
-		proxywasm.LogInfof("called %d for contextID=%d", ctx.cnt, ctx.contextID)
-		headers, err := proxywasm.GetHttpCallResponseHeaders()
-		if err != nil && err != types.ErrorStatusNotFound {
-			panic(err)
-		}
-		for _, h := range headers {
-			proxywasm.LogInfof("response header for the dispatched call: %s: %s", h[0], h[1])
-		}
-		headers, err = proxywasm.GetHttpCallResponseTrailers()
-		if err != nil && err != types.ErrorStatusNotFound {
-			panic(err)
-		}
-		for _, h := range headers {
-			proxywasm.LogInfof("response trailer for the dispatched call: %s: %s", h[0], h[1])
-		}
-	}
 	return types.OnPluginStartStatusOK
 }
 
-type httpHeaders struct {
+// type httpHeaders struct {
+// 	// Embed the default http context here,
+// 	// so that we don't need to reimplement all the methods.
+// 	types.DefaultHttpContext
+// 	contextID   uint32
+// 	headerName  string
+// 	headerValue string
+// 	cnt         int
+// 	// callBack    func(numHeaders, bodySize, numTrailers int)
+// 	plugin      pluginContext
+
+// 	// cnt       int
+// }
+
+// Override types.DefaultPluginContext.
+func (*pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
+	return &httpContext{contextID: contextID}
+}
+
+type httpContext struct {
 	// Embed the default http context here,
 	// so that we don't need to reimplement all the methods.
 	types.DefaultHttpContext
-	contextID   uint32
-	headerName  string
-	headerValue string
-	cnt         int
-	callBack    func(numHeaders, bodySize, numTrailers int)
-	plugin      pluginContext
-
-	// cnt       int
-}
-
-func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
-
-	return &httpHeaders{
-		contextID: contextID,
-		callBack:  p.callBack,
-		plugin:    *p,
-	}
+	// contextID is the unique identifier assigned to each httpContext.
+	contextID uint32
+	// pendingDispatchedRequest is the number of pending dispatched requests.
+	pendingDispatchedRequest int
 }
 
 type node struct {
@@ -128,7 +113,7 @@ type rps_struct struct {
 
 var RPS = rps_struct{requests: 0, rps: 100}
 
-func (ctx *httpHeaders) OnHttpRequestHeaders(_ int, _ bool) types.Action {
+func (ctx *httpContext) OnHttpRequestHeaders(_ int, _ bool) types.Action {
 	reqID, err := proxywasm.GetHttpRequestHeader("x-request-id")
 	if err != nil {
 		proxywasm.LogCriticalf("failed to get request id: %v", err)
@@ -220,7 +205,7 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(_ int, _ bool) types.Action {
 	return types.ActionContinue
 }
 
-func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
+func (ctx *httpContext) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 
 	currID := ds.currID
 	currNode := ds.reqID2Info[currID]
@@ -246,8 +231,9 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 
 	headers := [][2]string{
 		{":method", "GET"},
-		{":authority", "some_authority"},
-		{"accept", "*/*"}, {":path", new_path},
+		{":authority", ""},
+		{"accept", "*/*"}, 
+		{":path", new_path},
 		{"rps", rps},
 		{"img_size", img_size},
 		{"execution_time", strconv.Itoa(int(timeDelta))},
@@ -256,9 +242,11 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 	}
 	// Pick random value to select the request path.
 
-	if _, err := proxywasm.DispatchHttpCall("model_ingress", headers, nil, nil, 5000, ctx.plugin.callBack); err != nil {
+	if _, err := proxywasm.DispatchHttpCall("model_ingress", headers, nil, nil, 5000, ctx.dispatchCallback); err != nil {
 		proxywasm.LogCriticalf("dispatch httpcall failed: %v", err)
 	}
+
+	ctx.pendingDispatchedRequest++;
 
 	// headers, err := proxywasm.GetHttpCallResponseHeaders()
 	// proxywasm.LogInfof("response header for the dispatched call: %s: %s", headers[0][0], headers[0][1])
@@ -270,7 +258,61 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 	// 	proxywasm.LogInfof("response header for the dispatched call: %s: %s", h[0], h[1])
 	// }
 
-	return types.ActionContinue
+	return types.ActionPause
+}
+
+
+// dispatchCallback is the callback function called in response to the response arrival from the dispatched request.
+func (ctx *httpContext) dispatchCallback(numHeaders, bodySize, numTrailers int) {
+	// Decrement the pending request counter.
+	// ctx.pendingDispatchedRequest--
+	// if ctx.pendingDispatchedRequest == 0 {
+	// 	// This case, all the dispatched request was processed.
+	// 	// Adds a response header to the original response.
+	// 	proxywasm.AddHttpResponseHeader("total-dispatched", strconv.Itoa(totalDispatchNum))
+	// 	// And then contniue the original reponse.
+	// 	proxywasm.ResumeHttpResponse()
+	// 	proxywasm.LogInfof("response resumed after processed %d dispatched request", totalDispatchNum)
+	// } else {
+	// 	proxywasm.LogInfof("pending dispatched requests: %d", ctx.pendingDispatchedRequest)
+	// }
+
+	// ctx.pendingDispatchedRequest--;
+	// if ctx.pendingDispatchedRequest == 0 {
+	headers, err := proxywasm.GetHttpCallResponseHeaders()
+	if err != nil && err != types.ErrorStatusNotFound {
+		panic(err)
+	}
+	for _, h := range headers {
+		proxywasm.LogInfof("response header for the dispatched call: %s: %s", h[0], h[1])
+	}
+
+	power_string := headers[3][1]
+	stripped_power_string := strings.Replace(power_string, "[", "", -1)
+	stripped_power_string = strings.Replace(stripped_power_string, "]", "", -1)
+
+
+	proxywasm.LogInfof("\n\npower from model %s\n\n", headers[3][1])
+
+	proxywasm.AddHttpResponseHeader("power-from-model", stripped_power_string)
+	proxywasm.ResumeHttpResponse()
+	proxywasm.LogInfo("response resumed after processed")
+	// }
+	// // proxywasm.LogInfof("called %d for contextID=%d", ctx.cnt, ctx.contextID)
+	// headers, err := proxywasm.GetHttpCallResponseHeaders()
+	// if err != nil && err != types.ErrorStatusNotFound {
+	// 	panic(err)
+	// }
+	// for _, h := range headers {
+	// 	proxywasm.LogInfof("response header for the dispatched call: %s: %s", h[0], h[1])
+	// }
+	// headers, err = proxywasm.GetHttpCallResponseTrailers()
+	// if err != nil && err != types.ErrorStatusNotFound {
+	// 	panic(err)
+	// }
+	// for _, h := range headers {
+	// 	proxywasm.LogInfof("response trailer for the dispatched call: %s: %s", h[0], h[1])
+	// }
 }
 
 // Override types.DefaultPluginContext.

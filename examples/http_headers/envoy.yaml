@@ -111,7 +111,7 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: 128.105.145.38
+                      address: 128.105.144.121
                       port_value: 5005
     - name: model_ingress
       connect_timeout: 0.25s
@@ -124,7 +124,7 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: 128.105.145.38
+                      address: 128.105.144.121
                       port_value: 5010
     # - name: egress_http
     #   connect_timeout: 0.25s
